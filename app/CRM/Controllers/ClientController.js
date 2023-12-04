@@ -9,9 +9,12 @@ const { Op } = require("sequelize");
 const Helper = require('../../System/Helpers');
 const sequelize = require('../../DataBase/DataBase');
 const Product = require('../../Inventory/Models/Product');
+const Sucursal = require('../../Inventory/Models/Sucursal');
 
 
 const ClientController = {
+
+
     getClientsView: (req, res) => {
         res.render('CRM/Client/clients', { pageTitle: 'Cliente Registrados' });
     },
@@ -297,19 +300,19 @@ const ClientController = {
 
     viewClient: async (req, res, next) => {
         let cliente = await Client.findByPk(req.params.id).catch(e => next(e));
-        if(cliente){
+        if (cliente) {
             let notes = await ClientObservation.findAll({
                 where: { client: req.params.id },
                 order: [['id', 'DESC'],],
             }).catch(e => next(e));
 
-            let seller = cliente.seller !== null ? await Employee.findByPk(cliente.seller).catch(err => next(err)) :  {name: 'Ningun Vendedor asignado'};
+            let seller = cliente.seller !== null ? await Employee.findByPk(cliente.seller).catch(err => next(err)) : { name: 'Ningun Vendedor asignado' };
             let sellers = await Employee.findAll({ where: { isSeller: 1 } }).catch(err => next(err));
 
             //buscar las ordenes finalizadas
 
             let finalized = await Sale.findAll({
-                where: {    
+                where: {
                     [Op.and]: [
                         { _status: { [Op.not]: 'process' } },
                         { client: cliente.id },
@@ -319,7 +322,7 @@ const ClientController = {
             });
 
             let in_process = await Sale.findOne({
-                where: {    
+                where: {
                     [Op.and]: [
                         { _status: 'process' },
                         { client: cliente.id },
@@ -336,44 +339,46 @@ const ClientController = {
                 'revoking': 'Solicitud de Liberacion',
                 'revoked': 'Orden cancelada',
                 'delivery_failed': 'Entrega Fallida',
-                'to_resend':'Para Reenvio',
+                'to_resend': 'Para Reenvio',
                 'closed': 'Orden cerrada / En espera de preparación',
             }
             let in_process_details = [];
             let indexed_details = {};
-            if(in_process !== null){
-                in_process_details = await SaleDetail.findAll({where: {sale: in_process.id}}).catch(err => next(err));
+            if (in_process !== null) {
+                in_process_details = await SaleDetail.findAll({ where: { sale: in_process.id } }).catch(err => next(err));
                 for (let index = 0; index < in_process_details.length; index++) {
-                    if(in_process_details[index].product != null ){
-                        in_process_details[index].product = await Product.findByPk(in_process_details[index].product, {raw:true, attributes: ['id', 'name', 'image']}).catch(err => next(err));
+                    if (in_process_details[index].product != null) {
+                        in_process_details[index].product = await Product.findByPk(in_process_details[index].product, { raw: true, attributes: ['id', 'name', 'image'] }).catch(err => next(err));
                     }
                     indexed_details[in_process_details[index].id] = in_process_details[index];
                 }
             }
 
-            let providers = await Provider.findAll({where: {type: 'transport'}});
-        let locations = {};
-        providers.forEach(prov => {
-            if(prov.delivery_locations !== null) {
-                locations[prov.id] = prov.delivery_locations;
-            }
-        });
+            let providers = await Provider.findAll({ where: { type: 'transport' } });
+            let locations = {};
+            providers.forEach(prov => {
+                if (prov.delivery_locations !== null) {
+                    locations[prov.id] = prov.delivery_locations;
+                }
+            });
+            let sucursals = await Sucursal.findAll();
 
             //buscar las ordenes en proceso
-            return res.render('CRM/Client/view', { 
-                pageTitle:cliente.name,
+            return res.render('CRM/Client/view', {
+                pageTitle: cliente.name,
                 cliente,
                 sellers,
                 notes,
                 seller,
-                in_process, 
+                in_process,
                 finalized,
                 in_process_details,
                 indexed_details,
                 UserSucursal: req.session.userSession.employee.sucursal,
                 providers,
                 locations,
-                _status
+                _status,
+                sucursals
             });
         }
     },
@@ -385,7 +390,7 @@ const ClientController = {
 
         switch (data.case) {
             case 'note':
-                if (data.note.length < 10) {return res.json({ status: 'errorMessage', message: 'Agregue contenido a la nota' });}
+                if (data.note.length < 10) { return res.json({ status: 'errorMessage', message: 'Agregue contenido a la nota' }); }
                 let observation = await ClientObservation.create({
                     client: data.client,
                     createdBy: req.session.userSession.shortName,
@@ -407,8 +412,8 @@ const ClientController = {
 
         //paginacion simple de ordenes
         let total = 100,
-        limit = 10,
-        page = 1;
+            limit = 10,
+            page = 1;
 
         //Pendiente
         let array = {
@@ -444,7 +449,7 @@ const ClientController = {
         let searchLimit = 15;
         let search = req.query.search;
         try {
-            
+
             let clients = await Client.findAll({
                 where: {
                     [Op.or]: [
@@ -466,6 +471,7 @@ const ClientController = {
                 return {
                     value: el.id,
                     label: el.name,
+                    client: el
                 }
             }));
             /** Select id, id as value, name as label from providers where name like '%search%' order by name asc limit x */

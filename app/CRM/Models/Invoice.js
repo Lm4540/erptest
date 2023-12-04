@@ -40,7 +40,7 @@ const Invoice = sequelize.define('Invoice', {
     collected: DataTypes.DECIMAL(10,2),
     version: DataTypes.INTEGER.UNSIGNED
 }, {
-    tableName: 'CRM_invoice',
+    tableName: 'crm_invoice',
 });
 
 module.exports = Invoice;

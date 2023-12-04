@@ -33,7 +33,7 @@ const InvoiceDetail = sequelize.define('InvoiceDetail', {
         defaultValue: false,
     },
 }, {
-    tableName: 'CRM_invoice_detail',
+    tableName: 'crm_invoice_detail',
     timestamps: false,
 });
 

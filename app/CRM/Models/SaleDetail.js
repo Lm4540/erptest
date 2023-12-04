@@ -60,7 +60,7 @@ const SaleDetail = sequelize.define('SaleDetail', {
 
 }, {
     indexes: [],
-    tableName: 'CRM_sale_detail',
+    tableName: 'crm_sale_detail',
     timestamps: true,
 });
 

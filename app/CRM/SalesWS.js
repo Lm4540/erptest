@@ -13,6 +13,7 @@ const SaleController = require('./Controllers/SaleController');
 
 const sequelize = require("../DataBase/DataBase");
 const { Op, QueryTypes } = require("sequelize");
+const SalePayment = require("./Models/SalePayment");
 // const Helper = require('../System/Helpers');
 // const path = require('path');
 // const fs = require('fs');
@@ -223,6 +224,16 @@ module.exports = (io, socket) => {
                 if (sale == null) {
                     _io.to(group_identification).emit("close_sale_error", { errorMessage: 'No Hay pedido abierto para este cliente', _process: data._process });
                 } else {
+                    //buscar los pagos de este cliente que no esten asignados a una venta
+
+                    let payments = await sequelize.query(
+                        'SELECT * FROM `crm_sale_payment` where client = :cliente and asigned_amount > amount',
+                        {
+                            replacements: { cliente: cliente.id},
+                            type: QueryTypes.SELECT,
+                            model: SalePayment,
+                        }
+                    );
 
                     //buscar que la venta tenga detalles en ella
                     let details = await SaleDetail.findAll({ where: { sale: sale.id } });
@@ -256,6 +267,8 @@ module.exports = (io, socket) => {
                                 }
                                 
                                 await sale.save({ transaction: t });
+
+                                
 
                                 //emitir evento
                                 _io.to(group_identification).emit("sale_saved", { sale: sale.id, _process: data._process });

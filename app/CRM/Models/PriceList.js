@@ -13,7 +13,7 @@ const PriceList = sequelize.define('PriceList', {
     init_date: DataTypes.DATE,
     end_date: DataTypes.DATE,
 }, {
-    tableName: 'CRM_pricelist',
+    tableName: 'crm_pricelist',
 });
 
 module.exports = PriceList;

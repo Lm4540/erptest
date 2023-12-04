@@ -30,7 +30,7 @@ const InvoiceSeries = sequelize.define('InvoiceSeries', {
     },
     
 }, {
-    tableName: 'CRM_invoice_serie',
+    tableName: 'crm_invoice_serie',
     timestamps: false,
 });
 

@@ -61,7 +61,7 @@ const Budget = sequelize.define('Budget', {
     comment: DataTypes.TEXT,
     
 }, {
-    tableName: 'CRM_budget',
+    tableName: 'crm_budget',
 });
 
 module.exports = Budget;

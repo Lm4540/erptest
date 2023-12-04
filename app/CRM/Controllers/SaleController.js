@@ -2,11 +2,15 @@ const Sucursal = require('../../Inventory/Models/Sucursal');
 const Client = require("../Models/Client");
 const Sale = require('../Models/Sale');
 const SaleDetail = require('../Models/SaleDetail');
+const InvoiceSeries = require('../Models/InvoiceSerie');
+const SalePayment = require('../Models/SalePayment');
 const Product = require('../../Inventory/Models/Product');
 const Stock = require('../../Inventory/Models/Stock');
 const StockReserve = require('../../Inventory/Models/StockReserve');
 const Movement = require("../../Inventory/Models/Movements");
 const Provider = require("../../Inventory/Models/Provider");
+const PettyCashMoves = require('../../Financial/Models/PettyCashMoves');
+const Employee = require('../../HRM/Models/Employee');
 
 
 const Helper = require('../../System/Helpers');
@@ -21,9 +25,7 @@ const Invoice = require('../Models/Invoice');
 const InvoiceDetail = require('../Models/InvoiceDetail');
 
 const Money = require('../../System/Money');
-const PettyCashMoves = require('../../Financial/Models/PettyCashMoves');
-const Employee = require('../../HRM/Models/Employee');
-const InvoiceSeries = require('../Models/InvoiceSerie');
+
 const status = {
     'process': 'En Proceso',
     'prepared': "paquete preparado",
@@ -42,6 +44,201 @@ const status = {
 
 const SaleController = {
 
+    createPayment: async (req, res) => {
+        let data = req.body;
+        let client = await Client.findByPk(data.client);
+        if (client) {
+
+            //verificar los datos
+            if (data.method != 'money' && (data.bank.length < 4 || data.reference.length < 4)) {
+                return res.json({
+                    status: 'errorMessage',
+                    message: 'Proporcione el Nombre del Banco y el numero de referencia de la Transacción'
+                });
+            } else if (isNaN(data.amount) || data.amount < 0.01) {
+                return res.json({
+                    status: 'errorMessage',
+                    message: 'Monto no valido'
+                });
+
+            } else {
+                let sucursal = await Sucursal.findByPk(data.sucursal);
+                if (sucursal == null) {
+                    return res.json({
+                        status: 'errorMessage',
+                        message: 'Sucursal no Encontrada'
+                    });
+                }
+
+                try {
+                    return await sequelize.transaction(async (t) => {
+                        let registered_payment = null;
+                        //token
+                        if (data.method == 'money') {
+                            //generar el Ingreso a la caja Chica
+                            let _move = await PettyCashMoves.create({
+                                amount: data.amount,
+                                last_amount: sucursal.balance,
+                                concept: `Ingreso por Anticipo Cliente ${client.name} `,
+                                petty_cash: sucursal.id,
+                                type: 'payment',
+                                isin: true,
+                                createdBy: req.session.userSession.shortName,
+                                asigned_to: client.name,
+                                _number: 0,
+                            }, { transaction: t });
+
+                            registered_payment = await SalePayment.create({
+                                client: client.id,
+                                sales: [],
+                                type: 'money',
+                                amount: data.amount,
+                                asigned_amount: 0.00,
+                            }, { transaction: t });
+
+                            sucursal.balance += data.amount;
+                            client.payments += data.amount;
+                            await sucursal.save({ transaction: t });
+                            await client.save({ transaction: t });
+
+                            //recorrer ñlas ventas a ver si hay alguna que no tenga monto asignado
+
+                        } else {
+                            registered_payment = await SalePayment.create({
+                                client: client.id,
+                                sales: [],
+                                type: data.method,
+                                amount: data.amount,
+                                asigned_amount: 0.00,
+                                bank: data.bank,
+                                reference: data.reference,
+                            }, { transaction: t });
+
+                            client.payments += data.amount;
+                            await client.save({ transaction: t });
+                        }
+
+                        //buscar las compras del cliente que esten pendientes de pago
+
+                        let sales = await Sale.findAll({
+                            where: {
+                                client: client.id,
+                                _status: {
+                                    [Op.notIn]: ['process', 'collected', 'revoked'],
+                                },
+                                collected: sequelize.literal('collected < balance + delivery_amount')
+                            }
+                        });
+                        if (sales.length > 0) {
+
+                            let valor_restante = data.amount;
+                            let ids_registro = [];
+                            let len = sales.length;
+                            for (let index = 0; index < len; index++) {
+                                const sale = sales[index];
+                                if (valor_restante > 0) {
+                                    let sale_value = sale.balance + sale.delivery_amount - sale.collected;
+                                    if (sale_value < valor_restante) {
+                                        sale.collected += valor_restante;
+                                        if (sale.payments !== null) {
+                                            sale.payments.push({ "id": registered_payment.id, "amount": valor_restante })
+                                        } else {
+                                            sale.payments = [{ "id": registered_payment.id, "amount": valor_restante }];
+                                        }
+                                        sale._status = sale._status == 'delivered' ? 'collected' : sale._status;
+                                        valor_restante = 0;
+
+
+                                        await sale.save({ transaction: t });
+                                        ids_registro.push({ "id": sale.id, "amount": valor_restante });
+                                    } else {
+                                        sale.collected += sale_value;
+                                        if (sale.payments !== null) {
+                                            sale.payments.push({ "id": registered_payment.id, "amount": sale_value })
+                                        } else {
+                                            [{ "id": registered_payment.id, "amount": sale_value }]
+                                        }
+
+                                        if (sale.balance + sale.delivery_amount - sale.collected == 0) {
+                                            sale._status = sale._status == 'delivered' ? 'collected' : sale._status;
+                                        }
+                                        valor_restante -= sale_value;
+
+                                        await sale.save({ transaction: t });
+                                        ids_registro.push({ "id": sale.id, "amount": valor_restante });
+                                    }
+                                } else {
+                                    break;
+                                }
+
+                            }
+
+                            registered_payment.sales = ids_registro;
+                            registered_payment.asigned_amount = registered_payment - valor_restante;
+                            await registered_payment.save({ transaction: t });
+                        }
+
+                        return res.json({
+                            status: 'success',
+                            message: 'pago registrado'
+                        });
+                    });
+
+                } catch (error) {
+                    console.log(error);
+                    return res.json({
+                        status: 'errorMessage',
+                        message: error.message,
+                    });
+                }
+
+
+
+
+
+            }
+
+        }
+
+        return Helper.notFound(req, res, 'Client not Found!')
+    },
+
+    invoice_options: async (req, res) => {
+        let tmp = await Sucursal.findAll();
+        let sucursals = {};
+        tmp.forEach(s => sucursals[s.id] = s.name);
+
+        let types = {
+            fcf: 'Factura de Consumidor Final',
+            ccf: 'Comprobante de Credito Fiscal',
+            fex: 'Factura de Exportacion',
+            nr: 'Nota de Remision',
+            nc: 'Nota de Crédito',
+            nd: 'Nota de Debito',
+        };
+
+        tmp = await InvoiceSeries.findAll({
+            where: {
+                active: 1,
+                sucursal: req.session.userSession.employee.sucursal,
+            },
+            order: [['id', 'DESC'],],
+            raw: true
+        });
+
+        let series = {};
+        tmp.forEach(serie => {
+            let s = serie;
+            s.sucursal_name = sucursals[serie.sucursal];
+            s.number = serie.init + serie.used;
+            s.type_name = types[s.type];
+            series[s.id] = s;
+        });
+
+        return res.json(series);
+
+    },
+
     invoice_serie: async (req, res) => {
         let sucursals = await Sucursal.findAll();
         let series = await InvoiceSeries.findAll({
@@ -57,7 +254,7 @@ const SaleController = {
         };
 
 
-        return res.render('CRM/Sales/invoiceSeries', { pageTitle: 'Numeros de Serie', sucursals, series, types});
+        return res.render('CRM/Sales/invoiceSeries', { pageTitle: 'Numeros de Serie', sucursals, series, types });
     },
 
 
@@ -1147,6 +1344,50 @@ const SaleController = {
 
             var sucursal = await Sucursal.findByPk(session.employee.sucursal);
 
+            //verificar los datos de facturacion
+            //buscar la serie
+            let serie = await InvoiceSeries.findByPk(data.invoice_serie);
+            if (serie == null) {
+                return { status: 'error', message: 'Seleccione el tipo de documento' }
+            }
+
+            //verificar si el numero del documento esta dentro del rango de la serie
+            if (serie.init > data.invoice_number || data.invoice_number > serie.end) {
+                return { status: 'error', message: `Este numero de Documento esta fuera del rango registrado, coloque un numero entre ${serie.init} y ${serie.end}` }
+            }
+
+
+            //buscar una venta que tenga el mismo numero de factura
+            let existe = await Sale.count({
+                where: {
+                    invoce_serie: data.invoice_serie,
+                    invoice_number: data.invoice_number,
+                }
+            });
+
+            if (existe > 0) {
+                return { status: 'error', message: 'Este numero de Documento ya esta registrado con la serie Seleccionada' }
+            }
+
+            //verificar los datos dependiendo del tipo de documento
+            let update_client = false;
+
+            if (serie.type == 'ccf') {
+                if (data.invoice_data.direction.length < 5) {
+                    return { status: 'error', message: 'Coloque la direccion para el Credito Fiscal' }
+                } else if (data.invoice_data.nrc.length < 3) {
+                    return { status: 'error', message: 'Coloque el Numero de Registro para el Credito Fiscal' }
+                }
+
+                //verificar si los datos del cliente deben ser actualizados
+
+                if (client.NRC == null || client.NRC == "") {
+                    client.NRC = data.invoice_data.nrc;
+                    update_client = true;
+                }
+            }
+
+
             try {
                 return await sequelize.transaction(async (t) => {
 
@@ -1159,8 +1400,16 @@ const SaleController = {
                         type: client.type,
                         balance: 0.00,
                         delivery_type: 'local',
-                        delivery_amount: 0.00
+                        delivery_amount: 0.00,
+                        invoce_serie: serie.id,
+                        invoice_type: serie.type,
+                        invoice_number: data.invoice_number,
+                        invoice_data: data.invoice_data,
                     }, { transaction: t });
+
+                    serie.used++;
+                    await serie.save({ transaction: t });
+
 
                     let balance = 0.00,
                         sale_cost = 0.00,
@@ -1252,38 +1501,108 @@ const SaleController = {
                         await stock.save({ transaction: t });
 
                     }
+                    //ver los tipos de pago y registrarlos
+                    // payments = {
+                    //     money: 0.00,
+                    //     credit_card: {
+                    //        amount: 0.00,
+                    //        details: [],
+                    //     },
+                    //     transfer: {
+                    //        amount: 0.00,
+                    //        details: [],
+                    //     }
+                    //  };
+
+                    let payments_ids = [];
+
+
+                    if (data.payment.money > 0) {
+                        //generar el Ingreso a la caja Chica
+                        let _move = await PettyCashMoves.create({
+                            amount: data.payment.money,
+                            last_amount: sucursal.balance,
+                            concept: `Ingreso por Venta en Sala, cliente ${client.name} venta ID: ${sale.id}`,
+                            petty_cash: sucursal.id,
+                            type: 'payment',
+                            isin: true,
+                            createdBy: session.name,
+                            asigned_to: client.name,
+                            _number: 0,
+                        }, { transaction: t });
+
+                        let id = await SalePayment.create({
+                            client: client.id,
+                            sales: [{ 'id': sale.id, amount: data.payment.money },],
+                            type: 'money',
+                            amount: data.payment.money,
+                            asigned_amount: data.payment.money,
+                        }, { transaction: t });
+
+                        payments_ids.push({ id: id.id, amount: data.payment.money })
+
+                        sucursal.balance += balance;
+                        await sucursal.save({ transaction: t });
+
+                    }
+
+
+                    //token
+                    if (data.payment.transfer.amount > 0) {
+                        //recorrer los detalles y realizar los registros
+                        let len = data.payment.transfer.details.length;
+                        for (let index = 0; index < len; index++) {
+                            const element = data.payment.transfer.details[index];
+                            let id = await SalePayment.create({
+                                client: client.id,
+                                sales: [{ 'id': sale.id, amount: element.amount },],
+                                type: 'transfer',
+                                amount: element.amount,
+                                asigned_amount: element.amount,
+                                bank: element.bank,
+                                reference: element.reference
+                            }, { transaction: t });
+
+
+                            payments_ids.push({ id: id.id, amount: element.amount });
+
+                        }
+                    }
+
+
+                    if (data.payment.credit_card.amount > 0) {
+                        //recorrer los detalles y realizar los registros
+
+                        let len = data.payment.credit_card.details.length;
+                        for (let index = 0; index < len; index++) {
+                            const element = data.payment.credit_card.details[index];
+                            let id = await SalePayment.create({
+                                client: client.id,
+                                sales: [{ 'id': sale.id, amount: element.amount },],
+                                type: 'credit_card',
+                                amount: element.amount,
+                                asigned_amount: element.amount,
+                                bank: element.bank,
+                                reference: element.reference
+                            }, { transaction: t });
+
+
+                            payments_ids.push({ id: id.id, amount: element.amount });
+
+                        }
+
+                    }
 
                     sale.balance = balance;
                     sale.collected = balance;
                     sale.cost = sale_cost;
+                    sale.payments = payments_ids;
                     await sale.save({ transaction: t });
 
-                    //generar el documento correspondiente
-                    //por lo pronto FC
-
-
-
-
-                    //generar factura electronica
-
-                    console.log(session);
-
-                    //generar el Ingreso a la caja Chica
-                    let _move = await PettyCashMoves.create({
-                        amount: balance,
-                        last_amount: sucursal.balance,
-                        concept: `Ingreso por Venta en Sala, cliente ${client.name} venta ID: ${sale.id}`,
-                        petty_cash: sucursal.id,
-                        type: 'payment',
-                        isin: true,
-                        createdBy: session.name,
-                        asigned_to: client.name,
-                        _number: 0,
-                    }, { transaction: t });
-
-                    sucursal.balance += balance;
-                    await sucursal.save({ transaction: t });
-
+                    if (update_client == true) {
+                        if (client.sucursal)
+                            await client.save({ transaction: t });
+                    }
                     return { status: 'success', message: 'Guardado', sale: sale.id }
                 });
             } catch (error) {

@@ -20,7 +20,7 @@ const SaleReleaseRequest = sequelize.define('SaleReleaseRequest', {
         allowNull: false,
     },
 }, {
-    tableName: 'CRM_sale_release_request',
+    tableName: 'crm_sale_release_request',
 });
 
 

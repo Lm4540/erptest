@@ -14,7 +14,7 @@ const ClientObservation = sequelize.define('ClientObservation', {
     createdBy: DataTypes.STRING,
     observation: DataTypes.TEXT
 }, {
-    tableName: 'CRM_Client_Observation',
+    tableName: 'crm_client_observation',
 });
 
 module.exports = ClientObservation;

@@ -21,7 +21,7 @@ const Contact = sequelize.define('Contact', {
     },
     
 }, {
-    tableName: 'CRM_contact',
+    tableName: 'crm_contact',
 });
 
 module.exports = Contact;

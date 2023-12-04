@@ -29,7 +29,7 @@ const BudgetDetail = sequelize.define('BudgetDetail', {
         defaultValue: false,
     },
 }, {
-    tableName: 'CRM_budget_detail',
+    tableName: 'crm_budget_detail',
     timestamps: false,
 });
 

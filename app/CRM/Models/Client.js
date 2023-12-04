@@ -71,10 +71,11 @@ const Client = sequelize.define('Client', {
     email: DataTypes.STRING,
     direction: DataTypes.STRING(500),
     balance: DataTypes.DECIMAL(10, 2),
+    payments: DataTypes.DECIMAL(10, 2),
     seller: DataTypes.INTEGER.UNSIGNED,
     sucursal: DataTypes.INTEGER,
 }, {
-    tableName: 'CRM_Client',
+    tableName: 'crm_client',
 });
 
 

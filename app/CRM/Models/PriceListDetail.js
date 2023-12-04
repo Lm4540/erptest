@@ -12,7 +12,7 @@ const PriceListDetail = sequelize.define('PriceListDetail', {
     pricelist: DataTypes.INTEGER.UNSIGNED,
     price: DataTypes.DECIMAL(10,2),
 }, {
-    tableName: 'CRM_pricelist_detail',
+    tableName: 'crm_pricelist_detail',
 });
 
 module.exports = PriceListDetail;

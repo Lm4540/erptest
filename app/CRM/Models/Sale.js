@@ -62,6 +62,31 @@ const Sale = sequelize.define('Sale', {
     package_image: DataTypes.STRING,
     resend_package_image: DataTypes.STRING,
     package_by: DataTypes.STRING(50),
+    invoce_serie:DataTypes.NUMBER.UNSIGNED,
+    invoice_type: DataTypes.STRING(10),
+    invoice_number:DataTypes.NUMBER.UNSIGNED,
+    invoice_resume: DataTypes.TEXT,
+    invoice_data:{ 
+        type: DataTypes.TEXT,
+        get() {
+            let prefe = this.getDataValue('invoice_data');
+            return prefe !== null && prefe !== undefined ? JSON.parse(prefe) : null;
+        },
+        set(param) {
+            this.setDataValue('invoice_data', param == null ? null : JSON.stringify(param) );
+        }
+    },
+    payments: { 
+        type: DataTypes.TEXT,
+        get() {
+            let prefe = this.getDataValue('payments');
+            return prefe !== null && prefe !== undefined ? JSON.parse(prefe) : null;
+        },
+        set(param) {
+            this.setDataValue('payments', param == null ? null : JSON.stringify(param) );
+        }
+    },
+    dte: DataTypes.TEXT,
 }, {
     tableName: 'CRM_sale',
 });
